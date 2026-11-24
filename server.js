@@ -50,6 +50,7 @@ wss.on('connection', (ws, req) => {
   ws.on('message', buf => {
     let m;
     try { m = JSON.parse(buf); } catch (_) { return; }
+    if (m && m.t === 'ping' && typeof m.c === 'number') { send(ws, { t: 'pong', c: m.c }); return; }   // 핑 재기
     if (!m || m.t !== 'p' || !m.patch || typeof m.patch !== 'object' || Array.isArray(m.patch)) return;
     const next = { ...me.pres };
     for (const k in m.patch) { if (m.patch[k] === null) delete next[k]; else next[k] = m.patch[k]; }

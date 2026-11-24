@@ -66,6 +66,8 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-o
 .ab.sk.ready{border-color:#fff;animation:skr .6s ease-in-out infinite alternate}
 .ab.sk.act{border-color:var(--skc)}
 .ab[hidden]{display:none}
+#ping{position:absolute;left:12px;top:62px;font:700 12px/1 'Noto Sans KR',sans-serif;padding:4px 7px;border-radius:8px;background:rgba(10,12,18,.6);z-index:6;pointer-events:none}
+#ping[hidden]{display:none}
 #bSkill2{position:absolute;right:calc(100% + 8px);bottom:0;width:clamp(50px,min(20cqh,8.5cqw),82px);height:clamp(50px,min(20cqh,8.5cqw),82px)}
 #bSkill2 b{font-size:15px}#bSkill2 small{font-size:12px}
 @keyframes skr{from{box-shadow:0 0 0 0 var(--skc)}to{box-shadow:0 0 16px 4px var(--skc)}}
@@ -148,6 +150,7 @@ select option{color:#15181f}
   </div>
   <div id="stat"></div>
   <div id="msg"><b></b><span></span></div>
+  <div id="ping" hidden></div>
   <button id="bM" aria-label="메뉴" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
   <div id="ctl" hidden>
     <div id="pad">
@@ -179,7 +182,7 @@ select option{color:#15181f}
         <div class="lbl">친구와 대결</div>
         <button class="big alt" id="bOnline" disabled>온라인 대결</button>
         <p class="note" id="onNote">온라인 연결 확인 중…</p>
-        <div class="row"><button class="ghost" id="bSound">소리 켜짐</button><button class="ghost" id="bMark">착지 표시 켬</button></div>
+        <div class="row"><button class="ghost" id="bSound">소리 켜짐</button><button class="ghost" id="bMark">착지 표시 켬</button><button class="ghost" id="bLite">그래픽: 가볍게</button></div>
       </div>
     </div>
   </div>
@@ -1529,8 +1532,9 @@ function movePlayer(P, dt) {
   P.run += Math.abs(P.vx) * dt * 2.6;
 }
 function lerpRemote(P, dt) {
-  const px = P.x;
-  P.x += (P.tx - P.x) * Math.min(1, dt * 16);
+  const px = P.x, age = P.rxT ? Math.min(0.12, (performance.now() - P.rxT) / 1000) : 0;
+  const tx = clamp(P.tx + (P.rvx || 0) * age, P.key === 'L' ? -PMAX : NMIN, P.key === 'L' ? -NMIN : PMAX);   // 다음 신호 올 때까지 움직이던 방향으로 조금 예측
+  P.x += (tx - P.x) * Math.min(1, dt * 14);
   P.y += (P.ty - P.y) * Math.min(1, dt * 30);
   if (P.ty <= 0 && P.y < 0.02) P.y = 0;
   P.vx = (P.x - px) / dt; P.run += Math.abs(P.vx) * dt * 2.6;
@@ -1653,13 +1657,14 @@ let W = 0, H = 0, dpr = 1, S = 50, GY = 0, CX = 0, rot = false;
 let Smax = 50, Smin = 30, Sbg = 50, PAD = 30;
 const cam = { S: 50, punch: 0, ox: 0, oy: 0 };
 const cine = { t: 0, T: 1.5, P: null };   // 스킬 발동 연출 (이 동안 경기는 멈춤)
+let lite = (() => { try { const v = localStorage.getItem('shuttle-lite'); if (v != null) return v === '1'; } catch (_) {} return coarse; })();   // 폰은 기본 가볍게
 function layout() {
   const vw = innerWidth, vh = innerHeight;
   rot = coarse && vh > vw * 1.05;
   const w = rot ? vh : vw, h = rot ? vw : vh;
   stage.style.width = w + 'px'; stage.style.height = h + 'px';
   stage.style.transform = rot ? `translate(${vw}px,0) rotate(90deg)` : 'none';
-  dpr = Math.min(2, window.devicePixelRatio || 1);
+  dpr = lite ? 1 : Math.min(2, window.devicePixelRatio || 1);
   W = cv.width = Math.round(w * dpr); H = cv.height = Math.round(h * dpr);
   const reserve = coarse ? Math.min(H * 0.36, 142 * dpr) : 0;
   PAD = 34 * dpr;
@@ -2620,6 +2625,8 @@ function update(dt) {
   if (mode === 'online' && mySeat) sendP(false);
   const mt = midText(), hm = $('hMid'); if (hm.textContent !== mt) hm.textContent = mt;
   staBars();
+  { const pe = $('ping'), show = SERVER_MODE && mode === 'online' && pingMs > 0;
+    pe.hidden = !show; if (show) { pe.textContent = `핑 ${pingMs}ms`; pe.style.color = pingMs < 120 ? '#7be38a' : pingMs < 250 ? '#ffd36b' : '#ff7a7a'; } }
   let st = '';
   if (mode === 'online') {
     if (roomState !== 'ok') st = '온라인 연결이 끊겼어요';
@@ -2685,6 +2692,9 @@ const okInt = (v, a) => Number.isInteger(v) && v >= 0 && v <= a;
 function ingest(key, pr, vs) {
   const P = PS[key];
   if (Array.isArray(pr.p) && pr.p.length >= 3 && okNum(pr.p[0], 10) && okNum(pr.p[1], 9)) {
+    { const now = performance.now(), nx = pr.p[0];
+      if (P.rxT && now - P.rxT > 8 && now - P.rxT < 400) { const v = (nx - P.rx0) / ((now - P.rxT) / 1000); P.rvx = clamp((P.rvx || 0) * 0.5 + v * 0.5, -12, 12); } else P.rvx = 0;
+      P.rx0 = nx; P.rxT = now; }
     P.tx = pr.p[0]; P.ty = Math.max(0, pr.p[1]); P.has = true;
     P.rpose = [1, 2, -2, 3].includes(pr.p[3]) ? pr.p[3] : 0;
     P.sta = okNum(pr.p[5], 100) && pr.p[5] >= 0 ? pr.p[5] : 100;
@@ -2768,7 +2778,7 @@ function syncOnline() {
 }
 // 우리 서버에서 열었을 때(서버가 <meta name="shuttle-server">를 넣어 줌): WebSocket으로 방 연결
 const SERVER_MODE = !!document.querySelector('meta[name="shuttle-server"]');
-let roomCodeNow = '';
+let roomCodeNow = '', pingMs = 0;
 function cleanCode(c) { return String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); }
 function newCode() { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c = ''; for (let i = 0; i < 4; i++) c += A[Math.floor(Math.random() * A.length)]; return c; }
 function wsRoom(code) {
@@ -2786,11 +2796,13 @@ function wsRoom(code) {
       else if (m.t === 'p') { const o = { ...(others.get(m.peer) || {}) }; for (const k in m.patch) { if (m.patch[k] === null) delete o[k]; else o[k] = m.patch[k]; } others.set(m.peer, o); emit(); }
       else if (m.t === 'join') { if (!others.has(m.peer)) others.set(m.peer, {}); emit(); }
       else if (m.t === 'leave') { others.delete(m.peer); emit(); }
+      else if (m.t === 'pong') { const r = performance.now() - m.c; pingMs = pingMs ? Math.round(pingMs * 0.6 + r * 0.4) : Math.round(r); }
     };
     ws.onclose = () => { setOpen(false); others.clear(); emit(); if (alive) setTimeout(dial, Math.min(5000, 500 * (++retry))); };
     ws.onerror = () => {};
   }
   dial();
+  setInterval(() => { if (open && ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'ping', c: performance.now() })); }, 2000);
   return {
     presence: async patch => { for (const k in patch) { if (patch[k] === null) delete mine[k]; else mine[k] = patch[k]; } if (open && ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'p', patch })); },
     onPeers: (f) => { ph.push(f); setTimeout(emit, 0); return () => {}; },
@@ -2929,6 +2941,8 @@ $('bGo').onclick = () => { ensureAudio(); startCpu(); };
 $('bPickBack').onclick = () => { $('pick').hidden = true; $('menu').hidden = false; };
 $('bResume').onclick = () => { ensureAudio(); paused = false; $('menu').hidden = true; $('bResume').hidden = true; };
 $('bOnline').onclick = () => { ensureAudio(); startOnline(); };
+$('bLite').textContent = lite ? '그래픽: 가볍게' : '그래픽: 선명하게';
+$('bLite').onclick = () => { lite = !lite; try { localStorage.setItem('shuttle-lite', lite ? '1' : '0'); } catch (_) {} $('bLite').textContent = lite ? '그래픽: 가볍게' : '그래픽: 선명하게'; layout(); drawBg(); toast(lite ? '가볍게: 화면 해상도를 낮춰서 덜 버벅여요' : '선명하게: 화질은 좋지만 폰이 더 힘들어요'); };
 $('bSound').onclick = () => { soundOn = !soundOn; $('bSound').textContent = soundOn ? '소리 켜짐' : '소리 꺼짐'; ensureAudio(); };
 $('bMark').onclick = () => { showMark = !showMark; $('bMark').textContent = showMark ? '착지 표시 켬' : '착지 표시 끔'; };
 for (const b of $('diffSeg').children) b.onclick = () => { diff = b.dataset.d; for (const c of $('diffSeg').children) c.classList.toggle('on', c === b); };
