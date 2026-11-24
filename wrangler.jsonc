@@ -1,0 +1,10 @@
+{
+  "name": "shuttle-match",
+  "main": "worker.js",
+  "compatibility_date": "2025-10-01",
+  "rules": [{ "type": "Text", "globs": ["**/*.html"], "fallthrough": true }],
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
+}
